@@ -1,0 +1,21 @@
+# Secrets – never commit your API token
+.env
+
+# Output data – regenerated on every run
+smb_leads.csv
+seed_emails.csv
+master_list.csv
+hvac_leads.csv
+master_enriched_leads.csv
+real_estate_leads.csv
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv/
+
+# Warmup engine runtime files
+warmup_state.json
+warmup.log
