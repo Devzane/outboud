@@ -12,6 +12,7 @@ real_estate_leads.csv
 # Python cache
 __pycache__/
 *.pyc
+Leads
 
 # Virtual environment
 venv/
