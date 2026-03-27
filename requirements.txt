@@ -1,3 +1,5 @@
 apify-client
 python-dotenv
 resend
+requests
+beautifulsoup4
