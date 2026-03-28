@@ -64,7 +64,7 @@ class EmailWarmupEngine:
     def __init__(self) -> None:
         """Initialise the engine: load env, configure logging, set up
         the Resend client."""
-        load_dotenv(dotenv_path=_BASE_DIR / ".env")
+        load_dotenv(dotenv_path=_BASE_DIR.parent / ".env")
 
         self._configure_logging()
         self.logger.info("Initialising Email Warmup Engine …")

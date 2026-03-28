@@ -38,8 +38,8 @@ def process_row(index, website):
     return result
 
 def main():
-    input_file = 'smb_leads.csv'
-    output_file = 'master_enriched_leads.csv'
+    input_file = '../Apify_Lead_Scraper/Leads/smb_leads.csv'
+    output_file = '../Apify_Lead_Scraper/Leads/master_enriched_leads.csv'
     
     print("Loading leads...")
     df = load_leads(input_file)

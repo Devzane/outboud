@@ -4,13 +4,16 @@ Isolates environment variable logic and hardcoded search parameters.
 """
 import os
 import sys
+from pathlib import Path
 from dotenv import load_dotenv
+
+_BASE_DIR = Path(__file__).resolve().parent
 
 def load_config():
     """
     Load and validate the Apify API token from the .env file.
     """
-    load_dotenv()
+    load_dotenv(dotenv_path=_BASE_DIR.parent / ".env")
     api_token = os.environ.get("APIFY_API_TOKEN")
 
     if not api_token or api_token == "your_token_here":

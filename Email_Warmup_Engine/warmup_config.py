@@ -31,7 +31,7 @@ MAX_DELAY_SECONDS: int = 420
 # File paths
 # ---------------------------------------------------------------------------
 STATE_FILE: str = "warmup_state.json"
-SEED_CSV: str = "seed_emails.csv"
+SEED_CSV: str = "../Apify_Lead_Scraper/Leads/seed_emails.csv"
 LOG_FILE: str = "warmup.log"
 
 # ---------------------------------------------------------------------------
