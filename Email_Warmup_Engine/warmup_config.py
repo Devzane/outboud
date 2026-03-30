@@ -24,8 +24,8 @@ WARMUP_SCHEDULE: dict[int, int] = {
 # Pacing – randomized delay window between individual sends (in seconds).
 # 180 s = 3 min, 420 s = 7 min
 # ---------------------------------------------------------------------------
-MIN_DELAY_SECONDS: int = 180
-MAX_DELAY_SECONDS: int = 420
+MIN_DELAY_SECONDS: int = 60
+MAX_DELAY_SECONDS: int = 220
 
 # ---------------------------------------------------------------------------
 # File paths

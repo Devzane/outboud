@@ -20,3 +20,4 @@ venv/
 # Warmup engine runtime files
 warmup_state.json
 warmup.log
+apify_search_queries.txt
