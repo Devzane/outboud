@@ -3,7 +3,7 @@ Encapsulates all logic for building payloads and communicating with Apify.
 """
 from apify_client import ApifyClient
 
-def build_actor_input(search_queries, max_results=30):
+def build_actor_input(search_queries, max_results=12):
     """
     Build the dictionary payload that configures the Apify Google Maps Scraper actor.
     """

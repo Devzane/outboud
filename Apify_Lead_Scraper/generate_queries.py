@@ -2,11 +2,7 @@ def generate_apify_queries():
     # 1. Put your target keywords here. Keep the quotes around them if you want 
     # Apify to treat them as exact phrases.
     keywords = [
-        '"commercial HVAC contractors"',
-        '"industrial HVAC design build"',
-        '"commercial chiller repair"',
-        '"rooftop unit RTU installation"',
-        '"commercial HVAC preventative maintenance"'
+        
     ]
 
     # 2. The Tiered City List (State abbreviations included)
