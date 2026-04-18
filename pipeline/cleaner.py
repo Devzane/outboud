@@ -8,7 +8,7 @@
 #
 # USAGE:
 #   from pipeline import cleaner
-#   df = cleaner.clean_raw_leads()
+#   df = cleaner.clean_raw_leads("Leads")
 # ==============================================================================
 
 import pandas as pd
@@ -16,12 +16,12 @@ import glob
 import os
 
 
-def clean_raw_leads():
+def clean_raw_leads(input_dir="Leads"):
     """
-    Merge, deduplicate, and sanitize all raw CSV files from the Leads/ folder.
+    Merge, deduplicate, and sanitize all raw CSV files from the input folder.
 
     Steps:
-        1. Resolve the absolute path to the Leads/ subdirectory (relative to
+        1. Resolve the absolute path to the input_dir subdirectory (relative to
            this script's location, not the caller's working directory).
         2. Use glob to discover every .csv file inside Leads/.
         3. Concatenate all discovered files into one master DataFrame.
@@ -32,21 +32,24 @@ def clean_raw_leads():
         pd.DataFrame: The cleaned, merged DataFrame with all columns intact.
 
     Raises:
-        SystemExit: If no CSV files are found in the Leads/ directory.
+        SystemExit: If no CSV files are found in the input directory.
     """
 
     # -------------------------------------------------------------------------
-    # STEP 1: Build the absolute path to the Leads/ folder.
+    # STEP 1: Build the absolute path to the input folder.
     # -------------------------------------------------------------------------
     # os.path.dirname(__file__) gives us the 'pipeline/' directory.
-    # We go one level up ('..') to reach OutboundScript/, then into 'Leads/'.
-    # This ensures the path resolves correctly regardless of where the user
-    # runs the script from (e.g., from OutboundScript/ or from the repo root).
+    # If input_dir is absolute, use it directly. Otherwise, go one level up
+    # ('..') to reach OutboundScript/, then append the input_dir.
     # -------------------------------------------------------------------------
     pipeline_dir = os.path.dirname(os.path.abspath(__file__))
-    leads_dir = os.path.join(pipeline_dir, "..", "Leads")
+    if os.path.isabs(input_dir):
+        leads_dir = input_dir
+    else:
+        outbound_root = os.path.join(pipeline_dir, "..")
+        leads_dir = os.path.join(outbound_root, input_dir)
 
-    # Build the glob pattern: match every .csv file inside Leads/
+    # Build the glob pattern: match every .csv file inside leads_dir
     csv_pattern = os.path.join(leads_dir, "*.csv")
     file_list = glob.glob(csv_pattern)
 
@@ -54,11 +57,11 @@ def clean_raw_leads():
     # STEP 2: Safety check — abort if the folder is empty or missing.
     # -------------------------------------------------------------------------
     if not file_list:
-        print("[CLEANER] CRITICAL: No CSV files found in Leads/ directory.")
+        print(f"[CLEANER] CRITICAL: No CSV files found in {input_dir} directory.")
         print(f"[CLEANER] Searched path: {os.path.abspath(leads_dir)}")
         exit(1)
 
-    print(f"[CLEANER] Found {len(file_list)} raw CSV file(s) in Leads/.")
+    print(f"[CLEANER] Found {len(file_list)} raw CSV file(s) in {input_dir}.")
 
     # -------------------------------------------------------------------------
     # STEP 3: Read every CSV and stitch them together along the row axis.

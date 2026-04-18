@@ -117,7 +117,7 @@ def verify_email(email):
 # =============================================================================
 # MAIN FUNCTION: execute_cascading_verification()
 # =============================================================================
-def execute_cascading_verification(df):
+def execute_cascading_verification(df, output_file="VERIFIED_LEADS.csv", append_mode=False):
     """
     Apply cascading email verification logic to every row in the DataFrame.
 
@@ -135,23 +135,30 @@ def execute_cascading_verification(df):
         - email_source_type     : "work_email" or "personal_email"
 
     Auto-Save Protocol:
-        After every surviving lead is processed, the cumulative results are
-        overwritten to FINAL_CASCADING_LEADS.csv using na_rep="N/A". This
-        ensures that if the terminal crashes mid-run, all previously verified
-        leads are already safely on disk.
+        If append_mode is True:
+            Appends the single latest row to the output file on each iteration.
+            Creates the file with a header if it doesn't already exist.
+        If append_mode is False:
+            Overwrites the entire output file with the cumulative list of
+            verified leads on each iteration.
 
     Args:
-        df (pd.DataFrame): The cleaned DataFrame from cleaner.clean_raw_leads().
+        df (pd.DataFrame): The DataFrame of leads to verify.
+        output_file (str): The filename or path for the saved results.
+        append_mode (bool): Whether to append to output_file instead of overwriting.
 
     Returns:
-        None. Output is saved to FINAL_CASCADING_LEADS.csv in OutboundScript/.
+        None.
     """
 
     # -------------------------------------------------------------------------
-    # Resolve the output path: save in the OutboundScript/ root, not pipeline/.
+    # Resolve the output path.
     # -------------------------------------------------------------------------
     outbound_root = os.path.join(_script_dir, "..")
-    output_filepath = os.path.join(outbound_root, "FINAL_CASCADING_LEADS.csv")
+    if os.path.isabs(output_file):
+        output_filepath = output_file
+    else:
+        output_filepath = os.path.join(outbound_root, output_file)
 
     valid_rows = []    # Accumulator for surviving leads
     total_leads = len(df)
@@ -181,9 +188,15 @@ def execute_cascading_verification(df):
             if existing_status in ACCEPTABLE_STATUSES:
                 valid_rows.append(row)
                 # Auto-save the already-verified lead to maintain the file.
-                pd.DataFrame(valid_rows).to_csv(
-                    output_filepath, index=False, na_rep="N/A"
-                )
+                if append_mode:
+                    pd.DataFrame([row]).to_csv(
+                        output_filepath, mode="a", index=False, na_rep="N/A",
+                        header=not os.path.exists(output_filepath)
+                    )
+                else:
+                    pd.DataFrame(valid_rows).to_csv(
+                        output_filepath, index=False, na_rep="N/A"
+                    )
             continue
         # -----------------------------------------------------------------
 
@@ -246,10 +259,16 @@ def execute_cascading_verification(df):
             row_copy["email_source_type"] = email_type
             valid_rows.append(row_copy)
 
-            # Overwrite the output file with the full list so far.
-            pd.DataFrame(valid_rows).to_csv(
-                output_filepath, index=False, na_rep="N/A"
-            )
+            # Auto-save protocol
+            if append_mode:
+                pd.DataFrame([row_copy]).to_csv(
+                    output_filepath, mode="a", index=False, na_rep="N/A",
+                    header=not os.path.exists(output_filepath)
+                )
+            else:
+                pd.DataFrame(valid_rows).to_csv(
+                    output_filepath, index=False, na_rep="N/A"
+                )
 
         # -----------------------------------------------------------------
         # RATE LIMIT: 0.5 second delay between API calls to respect Reoon's
