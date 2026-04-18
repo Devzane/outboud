@@ -11,7 +11,8 @@ A modular, three-stage Python automation pipeline that sources high-ticket SMB l
 | **Lead Sourcing**  | Apify Client      | Google Maps Scraper actor for bulk SMB lead extraction         |
 | **Web Scraping**   | Requests + BeautifulSoup4 | Concurrent HTML fetching and parsing of company websites |
 | **Email Delivery** | Resend            | Transactional email API for domain warm-up sends              |
-| **Data Processing**| Pandas            | CSV I/O, DataFrame manipulation, and enrichment merging       |
+| **Email Verification** | Reoon API     | Cascading validation to protect sender reputation             |
+| **Data Processing**| Pandas            | CSV I/O, DataFrame manipulation, merging and cleaning       |
 | **Config**         | python-dotenv     | Secure API key management via `.env` files                    |
 
 ---
@@ -37,7 +38,16 @@ A modular, three-stage Python automation pipeline that sources high-ticket SMB l
                        │  master_enriched_leads.csv
                        ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                  STAGE 3: DOMAIN WARM-UP                    │
+│              STAGE 3: CLEANING & VERIFICATION               │
+│              pipeline/ & run_pipeline.py                    │
+│                                                             │
+│  Merge CSVs → Deduplicate → Reoon Cascading Validation      │
+│  (Work Email → Personal Email) → Export Verified Leads      │
+└──────────────────────┬──────────────────────────────────────┘
+                       │  VERIFIED_LEADS.csv
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  STAGE 4: DOMAIN WARM-UP                    │
 │                  Email_Warmup_Engine/                        │
 │                                                             │
 │  Load Seed CSVs → Graduated Send Schedule → Randomised      │
@@ -86,7 +96,26 @@ A concurrent web scraper that takes the raw lead CSV, visits each company's webs
 
 ---
 
-### 3. Email Warmup Engine (`Email_Warmup_Engine/`)
+### 3. Data Cleaning & Email Verification (`pipeline/`)
+
+A continuous script leveraging the Reoon Email Verifier API to rigorously vet the extracted emails, discarding bounces before they happen. Implements a "Cascading Verification" structure.
+
+| Component      | File             | Description                                                    |
+| -------------- | ---------------- | -------------------------------------------------------------- |
+| **Orchestrator** | `run_pipeline.py` | Command-line interface (`argparse`) to execute the two stages  |
+| **Transformer** | `cleaner.py`     | Discovers all `.csv` files via globbing, merges them together, deduplicates rows, and sanitizes numeric strings |
+| **Validator**  | `verifier.py`    | Executes Reoon API cascading logic on lead emails. Auto-saves results per row (crash-proof). |
+
+**Key Engineering Decisions**:
+- **Cascading Validation**: Verifies the work email first. If absent or failed, it falls back to the personal email. Surviving leads gain three tags (`verified_target_email`, `verification_status`, `email_source_type`).
+- **Dynamic Paths (Argparse)**: Define inputs, outputs, and an `--append` flag straight from the terminal dynamically.
+- **Resume Protocol**: The script actively bypasses leads that already contain a `verification_status` flag, saving API credits when resuming interrupted sequences.
+
+**Output**: `VERIFIED_LEADS.csv`
+
+---
+
+### 4. Email Warmup Engine (`Email_Warmup_Engine/`)
 
 A production-grade domain warm-up system powered by the Resend API. Builds sender reputation gradually over a configurable multi-day schedule to ensure cold emails land in the inbox rather than spam.
 
@@ -135,6 +164,11 @@ OutboundScript/
 │   ├── scraper.py           # HTML fetcher + subpage discovery
 │   ├── parser.py            # Regex-based email/name/summary extractor
 │   └── file_handler.py      # Pandas CSV I/O
+├── pipeline/
+│   ├── __init__.py          # Marks folder as a Python package
+│   ├── cleaner.py           # Merges and sanitizes Leads/ dataset
+│   └── verifier.py          # Cascading Reoon api logic + auto-save
+├── run_pipeline.py          # Argparse CLI orchestrator for pipeline/
 ├── Email_Warmup_Engine/
 │   ├── warmup_engine.py     # Core warm-up engine class
 │   ├── warmup_config.py     # Schedule, pacing, and sender config
@@ -196,7 +230,10 @@ cd Lead_Enrichment_Pipeline
 python main.py
 cd ..
 
-# Stage 3: Warm up your email domain (run daily)
+# Stage 3: Clean and Verify emails with Reoon
+python run_pipeline.py -i Leads -o VERIFIED_LEADS.csv
+
+# Stage 4: Warm up your email domain (run daily)
 python Email_Warmup_Engine/warmup_engine.py
 ```
 
