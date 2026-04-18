@@ -21,3 +21,11 @@ venv/
 warmup_state.json
 warmup.log
 apify_search_queries.txt
+
+# Ignore all CSV and Text files globally
+*.csv
+*.txt
+
+# EXCEPTIONS: Keep dependency files tracked
+!requirements.txt
+!agency-bot/requirements.txt
