@@ -53,29 +53,35 @@ def send_resend_email(to_email, subject, html_content, simulation_mode=False):
         print(f"[ERROR] Failed to send email to {to_email} via Resend: {e}")
         return False
 
-def generate_email_content(to_email, step):
+def generate_email_content(row, step):
     """
-    Generates dynamic email content and automatically injects an HTML tracking pixel.
+    Generates dynamic email content for the HVAC 4-step sequence.
+    HTML tracking pixels have been removed for maximum deliverability.
     """
-    # Base Content Generation
-    if step == 0:
-        subject = "Quick question about your operations"
-        body = f"Hi,<br><br>I noticed your company and wanted to see if you handle X...<br><br>Best,<br>Vectra Automation"
-    elif step == 1:
-        subject = "Following up on my previous email"
-        body = f"Hi,<br><br>Just bubbling this up. Did you see my last note?<br><br>Best,<br>Vectra Automation"
-    elif step == 2:
-        subject = "Any thoughts?"
-        body = f"Hi,<br><br>Checking in one last time...<br><br>Best,<br>Vectra Automation"
-    else:
-        subject = "Final Check-in"
-        body = f"Hi,<br><br>Assuming this isn't a priority right now.<br><br>Best,<br>Vectra Automation"
-
-    # HTML Tracking Pixel Injection
-    tracking_url = f"https://vectralautomation.tech/api/track?email={to_email}&step={step}"
-    tracking_pixel = f'<img src="{tracking_url}" width="1" height="1" style="display:none;" />'
+    # Safely extract variables with fallbacks
+    first_name = str(row.get('first_name', '')).strip()
+    first_name_greeting = f" {first_name}" if first_name and first_name.lower() != 'nan' else " there"
     
-    html_content = body + tracking_pixel
+    city = str(row.get('city', '')).strip()
+    city_text = f" in {city}" if city and city.lower() != 'nan' else " in your area"
+    
+    company_name = str(row.get('company_name', '')).strip()
+    company_text = company_name if company_name and company_name.lower() != 'nan' else "your business"
+
+    if step == 0:
+        subject = "I tried to reach your office yesterday"
+        body = f"Hi{first_name_greeting},<br><br>I’m an automation engineer researching HVAC dispatch efficiency{city_text}. I actually tried calling your main business line after hours to see how your routing works, and it went straight to a dead voicemail. Industry data shows missing those after-hours emergencies costs shops about $8k per dropped call.<br><br>I built a custom, multi-channel AI overflow valve to fix this. If a customer calls after hours, an AI receptionist answers instantly to handle the emergency. If they text, the system autonomously texts back, qualifies the issue, and secures the lead.<br><br>Mind if I record a quick 60-second video showing a live prototype of exactly how this would work for your specific business?<br><br>Best,<br>Abdulmuiz Sulaiman<br>Lead Automation Engineer, Vectra-Automation"
+    elif step == 1:
+        subject = "Re: I tried to reach your office yesterday"
+        body = f"Hi{first_name_greeting},<br><br>I know you're busy running the team, but I wanted to bump this up.<br><br>I already mapped out the exact math on what that dead voicemail is costing {company_text} this month, and how the Voice & SMS AI prototype fixes it instantly without replacing your human front desk.<br><br>Let me know if you want the link to the video.<br><br>Best,<br>Abdulmuiz"
+    elif step == 2:
+        subject = "Re: I tried to reach your office yesterday"
+        body = f"Hi{first_name_greeting},<br><br>One quick thought on this—research shows that 85% of callers who hit a voicemail will not leave a message and will just hang up to call a competitor instead.<br><br>My multi-channel AI guarantees a sub-5-second response time whether the customer calls or texts, meaning you win the race against other contractors{city_text} every single time.<br><br>Are you open to seeing the 60-second prototype?<br><br>Best,<br>Abdulmuiz"
+    else:
+        subject = "Re: I tried to reach your office yesterday"
+        body = f"Hi{first_name_greeting},<br><br>I haven't heard back, so I'll assume plugging the after-hours call leak isn't a priority for {company_text} right now.<br><br>I will stop reaching out, but if you ever want to see how the Voice and SMS dispatcher works in the future, just reply to this email.<br><br>Best of luck this season!<br><br>Best,<br>Abdulmuiz"
+
+    html_content = body
     return subject, html_content
 
 def execute_daily_sending():
@@ -167,7 +173,7 @@ def execute_daily_sending():
             
             if is_eligible:
                 lead_email = row.get('verified_target_email', f"Lead #{index}")
-                subject, html_content = generate_email_content(lead_email, seq_step)
+                subject, html_content = generate_email_content(row, seq_step)
                 
                 success = send_resend_email(lead_email, subject, html_content, simulation_mode)
                 
@@ -175,12 +181,14 @@ def execute_daily_sending():
                     df.at[index, 'sequence_step'] = seq_step + 1
                     df.at[index, 'last_contact_date'] = today_str
                     
-                    if seq_step + 1 == 2:
-                        next_delay = 7
+                    if seq_step + 1 == 1:
+                        next_delay = 3
+                    elif seq_step + 1 == 2:
+                        next_delay = 4
                     elif seq_step + 1 == 3:
-                        next_delay = 14
+                        next_delay = 6
                     else:
-                        next_delay = 999 
+                        next_delay = 999
                         
                     df.at[index, 'next_scheduled_date'] = calculate_next_send_date(today, next_delay)
                     follow_ups_sent += 1
@@ -204,7 +212,7 @@ def execute_daily_sending():
         
         if seq_step == 0:
             lead_email = row.get('verified_target_email', f"Lead #{index}")
-            subject, html_content = generate_email_content(lead_email, seq_step)
+            subject, html_content = generate_email_content(row, seq_step)
             
             success = send_resend_email(lead_email, subject, html_content, simulation_mode)
             

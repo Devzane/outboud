@@ -1,29 +1,48 @@
 """
-imap_sync.py - The Kill Switch (IMAP Reply Sync)
+imap_sync.py - The Kill Switch & Telegram Notifier (Google Sheets Edition)
 Monitors the connected IMAP inbox to detect when a prospect has replied.
-If a reply is found, it flags the prospect as 'has_replied' in our CSV.
-This prevents further automated follow-up sequences.
+If a reply is found, it flags the prospect as 'has_replied' in Google Sheets
+and sends an instant push notification via Telegram.
 """
 import imaplib
 import email
 import os
 import pandas as pd
+import requests
+import gspread
 from dotenv import load_dotenv
 
 # Define the absolute path to the agency-bot .env file
-# Based on project structure: Vectra-Automation/OutboundScript/pipeline/imap_sync.py -> ../agency-bot/.env
 ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'agency-bot', '.env'))
 load_dotenv(ENV_PATH)
 
-def sync_replies(csv_filepath: str):
+def send_telegram_alert(sender_email):
+    """Sends a push notification to your phone via Telegram."""
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    
+    if not bot_token or not chat_id:
+        print("[WARNING] TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing in .env. Skipping push notification.")
+        return
+        
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    message = f"🚨 LEAD REPLIED: {sender_email}.\n\nOpen Loom and record the 60-second video NOW!"
+    
+    try:
+        response = requests.post(url, json={"chat_id": chat_id, "text": message})
+        if response.status_code == 200:
+            print("[TELEGRAM] Alert sent successfully to your phone.")
+        else:
+            print(f"[ERROR] Failed to send Telegram alert: {response.text}")
+    except Exception as e:
+        print(f"[ERROR] Exception sending Telegram alert: {e}")
+
+def sync_replies():
     """
     Connects to Gmail IMAP, reads recent emails, and checks the sender 
-    addresses against our CSV 'verified_target_email' column.
-
-    Args:
-        csv_filepath (str): The path to the CSV file holding our campaign leads.
+    addresses against our Google Sheet 'verified_target_email' column.
     """
-    print(f"[IMAP SYNC] Starting synchronization on {csv_filepath}")
+    print("[IMAP SYNC] Starting synchronization with Google Sheets")
     
     # 1. Load Environment Variables
     email_user = os.getenv("EMAIL_USER")
@@ -33,21 +52,32 @@ def sync_replies(csv_filepath: str):
         print(f"[ERROR] Credentials not found in environment at {ENV_PATH}")
         return
 
-    # 2. Load the Leads DataFrame
-    try:
-        df = pd.read_csv(csv_filepath)
-    except FileNotFoundError:
-        print(f"[ERROR] Could not find the CSV file at: {csv_filepath}")
+    # 2. Connect to Google Sheets
+    CRED_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'agency-bot', 'google_credentials.json'))
+    if not os.path.exists(CRED_PATH):
+        print(f"[ERROR] Google Credentials not found at {CRED_PATH}. Please provide it.")
         return
 
-    # 3. Ensure 'has_replied' column exists to prevent key errors
+    try:
+        gc = gspread.service_account(filename=CRED_PATH)
+        sh = gc.open("Agency Lead Dashboard")
+        worksheet = sh.worksheet("Outbound Pipeline")
+        records = worksheet.get_all_records()
+        if not records:
+            print("[INFO] No leads found in 'Outbound Pipeline'.")
+            return
+        df = pd.DataFrame(records)
+    except Exception as e:
+        print(f"[ERROR] Failed to connect to Google Sheets: {e}")
+        return
+
+    # 3. Ensure columns exist
     if 'has_replied' not in df.columns:
         print("[IMAP SYNC] 'has_replied' column is missing. Initializing it as False.")
         df['has_replied'] = False
         
-    # We also need a fast way to check emails. Let's make sure verified_target_email exists
     if 'verified_target_email' not in df.columns:
-        print("[ERROR] Column 'verified_target_email' not found in CSV. Aborting sync.")
+        print("[ERROR] Column 'verified_target_email' not found in Sheet. Aborting sync.")
         return
 
     # 4. Connect to IMAP
@@ -62,7 +92,6 @@ def sync_replies(csv_filepath: str):
     print("[IMAP SYNC] Connected to INBOX successfully. Searching for recent messages...")
 
     # 5. Fetch Senders from Recent emails
-    # Using 'ALL' rather than 'UNSEEN' guarantees we don't miss read replies.
     status, messages = mail.search(None, 'ALL')
     
     if status != 'OK':
@@ -71,26 +100,19 @@ def sync_replies(csv_filepath: str):
         
     # Get the last 100 emails to prevent extremely long processing times
     message_ids = messages[0].split()[-100:] 
-    
     repliers = set()
 
     for msg_id in message_ids:
-        # Fetch individual email packet (RFC822 gets full message, BODY[HEADER.FIELDS (FROM)] is faster)
-        # Using BODY[HEADER.FIELDS (FROM)] to limit data transfer weight
         res, data = mail.fetch(msg_id, '(BODY[HEADER.FIELDS (FROM)])')
         if res != 'OK': continue
             
         for response_part in data:
             if isinstance(response_part, tuple):
-                # Parse the raw email bytes
                 msg = email.message_from_bytes(response_part[1])
-                
-                # The 'From' header might look like "Name <email@domain.com>"
                 from_header = msg.get('From', '')
                 if not from_header:
                     continue
                     
-                # Extract just the email if standard format `<email>` is found
                 clean_email = from_header
                 if '<' in from_header and '>' in from_header:
                     start = from_header.find('<') + 1
@@ -99,7 +121,6 @@ def sync_replies(csv_filepath: str):
                     
                 repliers.add(clean_email.lower().strip())
 
-    # Close the mailbox
     mail.close()
     mail.logout()
 
@@ -107,21 +128,35 @@ def sync_replies(csv_filepath: str):
 
     # 6. Cross-reference with our DataFrame
     match_count = 0
-    # Clean the CSV email column for safe matching
     df['verified_target_email'] = df['verified_target_email'].astype(str).str.lower().str.strip()
     
     for sender_email in repliers:
-        # Check if this sender email matches a target
         mask = df['verified_target_email'] == sender_email
         if mask.any():
-            # If so, they replied! Change the flag for all matching rows
+            # Check if we already marked them as replied (to avoid duplicate telegram alerts)
+            already_replied_mask = (mask) & (df['has_replied'] == True)
+            if already_replied_mask.any():
+                continue # We already sent an alert for this previously
+                
             df.loc[mask, 'has_replied'] = True
             match_count += 1
-            print(f"[KILL SWITCH ACTIVATED] Lead replied: {sender_email}")
+            
+            # TRIGGER MASSIVE TERMINAL ALERT AND TELEGRAM NOTIFICATION
+            print("=========================================================")
+            print(f"[🚨 ACTION REQUIRED 🚨] LEAD REPLIED: {sender_email}")
+            print("=========================================================")
+            send_telegram_alert(sender_email)
 
-    # 7. Save Results
+    # 7. Save Results back to Google Sheets
     if match_count > 0:
-        df.to_csv(csv_filepath, index=False)
-        print(f"[IMAP SYNC] Update successful! {match_count} new leads marked as replied.")
+        try:
+            worksheet.clear()
+            worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+            print(f"[IMAP SYNC] Update successful! {match_count} new leads marked as replied in Google Sheets.")
+        except Exception as e:
+            print(f"[ERROR] Failed to push updates back to Google Sheets: {e}")
     else:
         print("[IMAP SYNC] No new matching replies found.")
+
+if __name__ == "__main__":
+    sync_replies()
