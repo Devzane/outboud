@@ -47,10 +47,8 @@ def send_resend_email(to_email, subject, html_content, simulation_mode=False):
         return False
         
     try:
-        # The reply-to header routes replies to Resend instead of Zoho
         params: resend.Emails.SendParams = {
             "from": "Abdulmuiz <abdulmuiz@vectralautomation.tech>",
-            "reply_to": "hello@inbound.vectralautomation.tech",
             "to": [to_email],
             "subject": subject,
             "html": html_content,
