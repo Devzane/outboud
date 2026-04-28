@@ -3,3 +3,5 @@ python-dotenv
 resend
 requests
 beautifulsoup4
+gspread
+pandas

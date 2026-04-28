@@ -1,19 +1,28 @@
 """
 sender.py - The Dispatcher
+===========================
 Executes prioritized sending logic via Google Sheets:
 1. Follow-ups (sequence_step > 0)
 2. New Leads (sequence_step == 0) throttled to 15/day
 Injects an HTML tracking pixel for open rates.
+
+Data Flow:
+    1. Pull leads from Google Sheets via sheets_crm.get_all_leads_as_df()
+    2. Phase 1: Process all eligible follow-ups
+    3. Phase 2: Process new leads (throttled to 15/day)
+    4. Push updated DataFrame back via sheets_crm.update_sheet_from_df()
 """
 import os
 import resend
-import gspread
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
 
 # Import our custom math engine
 from .scheduler import calculate_next_send_date
+
+# Import the shared Google Sheets service — single source of truth for I/O.
+from .sheets_crm import get_all_leads_as_df, update_sheet_from_df
 
 # Define environment path
 ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'agency-bot', '.env'))
@@ -40,7 +49,7 @@ def send_resend_email(to_email, subject, html_content, simulation_mode=False):
     try:
         # The reply-to header routes replies to Resend instead of Zoho
         params: resend.Emails.SendParams = {
-            "from": "abdulmuiz@vectralautomation.tech",
+            "from": "Abdulmuiz <abdulmuiz@vectralautomation.tech>",
             "reply_to": "hello@inbound.vectralautomation.tech",
             "to": [to_email],
             "subject": subject,
@@ -70,7 +79,7 @@ def generate_email_content(row, step):
 
     if step == 0:
         subject = "I tried to reach your office yesterday"
-        body = f"Hi{first_name_greeting},<br><br>I’m an automation engineer researching HVAC dispatch efficiency{city_text}. I actually tried calling your main business line after hours to see how your routing works, and it went straight to a dead voicemail. Industry data shows missing those after-hours emergencies costs shops about $8k per dropped call.<br><br>I built a custom, multi-channel AI overflow valve to fix this. If a customer calls after hours, an AI receptionist answers instantly to handle the emergency. If they text, the system autonomously texts back, qualifies the issue, and secures the lead.<br><br>Mind if I record a quick 60-second video showing a live prototype of exactly how this would work for your specific business?<br><br>Best,<br>Abdulmuiz Sulaiman<br>Lead Automation Engineer, Vectra-Automation"
+        body = f"Hi{first_name_greeting},<br><br>I'm an automation engineer researching HVAC dispatch efficiency{city_text}. I actually tried calling your main business line after hours to see how your routing works, and it went straight to a dead voicemail. Industry data shows missing those after-hours emergencies costs shops about $8k per dropped call.<br><br>I built a custom, multi-channel AI overflow valve to fix this. If a customer calls after hours, an AI receptionist answers instantly to handle the emergency. If they text, the system autonomously texts back, qualifies the issue, and secures the lead.<br><br>Mind if I record a quick 60-second video showing a live prototype of exactly how this would work for your specific business?<br><br>Best,<br>Abdulmuiz Sulaiman<br>Lead Automation Engineer, Vectra-Automation"
     elif step == 1:
         subject = "Re: I tried to reach your office yesterday"
         body = f"Hi{first_name_greeting},<br><br>I know you're busy running the team, but I wanted to bump this up.<br><br>I already mapped out the exact math on what that dead voicemail is costing {company_text} this month, and how the Voice & SMS AI prototype fixes it instantly without replacing your human front desk.<br><br>Let me know if you want the link to the video.<br><br>Best,<br>Abdulmuiz"
@@ -97,32 +106,12 @@ def execute_daily_sending():
         print("[WARNING] RESEND_API_KEY missing. Defaulting to SIMULATION MODE.")
         simulation_mode = True
 
-    # 1. Connect to Google Sheets
-    CRED_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'agency-bot', 'google_credentials.json'))
-    if not os.path.exists(CRED_PATH):
-        print(f"[ERROR] Google Credentials not found at {CRED_PATH}. Please provide it.")
-        return
-
-    try:
-        gc = gspread.service_account(filename=CRED_PATH)
-        # Open the specific worksheet
-        sh = gc.open("Agency Lead Dashboard")
-        
-        # Try to open "Outbound Pipeline", if not exist, fail gracefully
-        try:
-            worksheet = sh.worksheet("Outbound Pipeline")
-        except gspread.exceptions.WorksheetNotFound:
-            print("[ERROR] Worksheet 'Outbound Pipeline' not found. Please create it and add your leads.")
-            return
-
-        # Fetch all records into a DataFrame
-        records = worksheet.get_all_records()
-        if not records:
-            print("[INFO] No leads found in 'Outbound Pipeline'.")
-            return
-        df = pd.DataFrame(records)
-    except Exception as e:
-        print(f"[ERROR] Failed to connect to Google Sheets: {e}")
+    # 1. Fetch leads from Google Sheets via the shared CRM module.
+    #    No more inline gspread boilerplate — sheets_crm handles auth,
+    #    worksheet resolution, and DataFrame conversion.
+    df = get_all_leads_as_df()
+    if df.empty:
+        print("[INFO] No leads found in Google Sheets. Nothing to dispatch.")
         return
 
     # Ensure required columns exist
@@ -223,19 +212,15 @@ def execute_daily_sending():
                 new_leads_sent += 1
 
     # =========================================================================
-    # PHASE 3: STATE PERSISTENCE (Back to Google Sheets)
+    # PHASE 3: STATE PERSISTENCE (Back to Google Sheets via shared CRM)
     # =========================================================================
     if follow_ups_sent > 0 or new_leads_sent > 0:
         print("[DISPATCHER] Updating Google Sheets with latest dispatch data...")
-        try:
-            # We clear the worksheet and upload the entire dataframe
-            # A more robust solution for huge datasets is updating only specific rows, 
-            # but for cold outreach limits, rewriting the sheet is clean and fast enough.
-            worksheet.clear()
-            worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+        success = update_sheet_from_df(df)
+        if success:
             print("[SUCCESS] Google Sheets successfully updated.")
-        except Exception as e:
-            print(f"[ERROR] Failed to push updates back to Google Sheets: {e}")
+        else:
+            print("[ERROR] Failed to push updates back to Google Sheets.")
 
     print("[DISPATCHER] Daily sweep complete.")
     print(f"   Follow-ups sent: {follow_ups_sent}")

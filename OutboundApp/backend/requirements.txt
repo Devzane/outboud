@@ -1,6 +1,0 @@
-fastapi
-uvicorn
-sqlmodel
-pandas
-python-multipart
-pydantic-settings

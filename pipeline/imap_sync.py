@@ -1,16 +1,26 @@
 """
-imap_sync.py - The Kill Switch & Telegram Notifier (Google Sheets Edition)
+imap_sync.py - The Kill Switch & Telegram Notifier
+===================================================
 Monitors the connected IMAP inbox to detect when a prospect has replied.
 If a reply is found, it flags the prospect as 'has_replied' in Google Sheets
 and sends an instant push notification via Telegram.
+
+Data Flow:
+    1. Pull leads from Google Sheets via sheets_crm.get_all_leads_as_df()
+    2. Connect to Gmail IMAP and scan recent inbox senders
+    3. Cross-reference senders against our 'verified_target_email' column
+    4. On match: set has_replied=True, fire Telegram alert
+    5. Push updated DataFrame back via sheets_crm.update_sheet_from_df()
 """
 import imaplib
 import email
 import os
 import pandas as pd
 import requests
-import gspread
 from dotenv import load_dotenv
+
+# Import the shared Google Sheets service — single source of truth for I/O.
+from .sheets_crm import get_all_leads_as_df, update_sheet_from_df
 
 # Define the absolute path to the agency-bot .env file
 ENV_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'agency-bot', '.env'))
@@ -52,23 +62,12 @@ def sync_replies():
         print(f"[ERROR] Credentials not found in environment at {ENV_PATH}")
         return
 
-    # 2. Connect to Google Sheets
-    CRED_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'agency-bot', 'google_credentials.json'))
-    if not os.path.exists(CRED_PATH):
-        print(f"[ERROR] Google Credentials not found at {CRED_PATH}. Please provide it.")
-        return
-
-    try:
-        gc = gspread.service_account(filename=CRED_PATH)
-        sh = gc.open("Agency Lead Dashboard")
-        worksheet = sh.worksheet("Outbound Pipeline")
-        records = worksheet.get_all_records()
-        if not records:
-            print("[INFO] No leads found in 'Outbound Pipeline'.")
-            return
-        df = pd.DataFrame(records)
-    except Exception as e:
-        print(f"[ERROR] Failed to connect to Google Sheets: {e}")
+    # 2. Fetch leads from Google Sheets via the shared CRM module.
+    #    No more inline gspread boilerplate — sheets_crm handles auth,
+    #    worksheet resolution, and DataFrame conversion.
+    df = get_all_leads_as_df()
+    if df.empty:
+        print("[INFO] No leads found in Google Sheets. Nothing to sync.")
         return
 
     # 3. Ensure columns exist
@@ -147,14 +146,13 @@ def sync_replies():
             print("=========================================================")
             send_telegram_alert(sender_email)
 
-    # 7. Save Results back to Google Sheets
+    # 7. Save Results back to Google Sheets via the shared CRM module.
     if match_count > 0:
-        try:
-            worksheet.clear()
-            worksheet.update([df.columns.values.tolist()] + df.values.tolist())
-            print(f"[IMAP SYNC] Update successful! {match_count} new leads marked as replied in Google Sheets.")
-        except Exception as e:
-            print(f"[ERROR] Failed to push updates back to Google Sheets: {e}")
+        success = update_sheet_from_df(df)
+        if success:
+            print(f"[IMAP SYNC] Update successful! {match_count} new leads marked as replied.")
+        else:
+            print("[ERROR] Failed to push updates back to Google Sheets.")
     else:
         print("[IMAP SYNC] No new matching replies found.")
 
