@@ -54,6 +54,25 @@ export default function Home() {
     }
   };
 
+  const triggerClean = async () => {
+    setActionStatus("Ingesting & cleaning new leads...");
+    try {
+      const response = await fetch("http://localhost:8001/api/clean", {
+        method: "POST",
+      });
+      const data = await response.json();
+      if (data.status === "success") {
+        setActionStatus(`✓ ${data.message}`);
+        // Refresh the leads table to show the newly ingested data
+        fetchLeads();
+      } else {
+        setActionStatus(data.message || "No new leads to ingest.");
+      }
+    } catch (error: any) {
+      setActionStatus(`Ingest failed: ${error.message}`);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 p-8 font-sans">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -64,7 +83,13 @@ export default function Home() {
             <h1 className="text-3xl font-bold text-white tracking-tight">Outbound Pipeline Control</h1>
             <p className="text-sm text-slate-400 mt-1">Manage leads, synchronize IMAP, and launch daily sequences.</p>
           </div>
-          <div className="flex gap-4">
+          <div className="flex gap-4 flex-wrap">
+            <button 
+              onClick={triggerClean}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-sm font-medium transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+            >
+              Ingest {"&"} Clean New Leads
+            </button>
             <button 
               onClick={triggerSync}
               className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-md text-sm font-medium transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-500"
