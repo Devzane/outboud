@@ -65,12 +65,14 @@ ACCEPTABLE_STATUSES = ["safe", "role", "catch-all", "catch_all"]
 # =============================================================================
 # HELPER FUNCTION: verify_email()
 # =============================================================================
-def verify_email(email):
+def verify_email(email, mode="power"):
     """
     Send a single email address to the Reoon Email Verifier API.
 
     Args:
         email (str): The email address to verify.
+        mode  (str): Reoon verification depth — "quick" (domain/syntax only)
+                     or "power" (deep SMTP check). Defaults to "power".
 
     Returns:
         str: One of the following:
@@ -83,7 +85,7 @@ def verify_email(email):
 
     Notes:
         - timeout=15 prevents infinite terminal hangs on slow API responses.
-        - mode=power uses Reoon's deepest verification engine.
+        - mode is passed directly to the Reoon API params.
     """
 
     # -------------------------------------------------------------------------
@@ -96,7 +98,7 @@ def verify_email(email):
     params = {
         "email": email,
         "key": API_KEY,
-        "mode": "power",
+        "mode": mode,
     }
 
     try:
@@ -117,7 +119,7 @@ def verify_email(email):
 # =============================================================================
 # MAIN FUNCTION: execute_cascading_verification()
 # =============================================================================
-def execute_cascading_verification(df, output_file="VERIFIED_LEADS.csv", append_mode=False):
+def execute_cascading_verification(df, mode="power", output_file="VERIFIED_LEADS.csv", append_mode=False):
     """
     Apply cascading email verification logic to every row in the DataFrame.
 
@@ -144,11 +146,12 @@ def execute_cascading_verification(df, output_file="VERIFIED_LEADS.csv", append_
 
     Args:
         df (pd.DataFrame): The DataFrame of leads to verify.
+        mode (str): Reoon verification depth — "quick" or "power".
         output_file (str): The filename or path for the saved results.
         append_mode (bool): Whether to append to output_file instead of overwriting.
 
     Returns:
-        None.
+        dict: Summary with keys "status", "verified", "discarded", "output_file".
     """
 
     # -------------------------------------------------------------------------
@@ -210,7 +213,7 @@ def execute_cascading_verification(df, output_file="VERIFIED_LEADS.csv", append_
         email_type = None
 
         # ----- STEP 1: Verify the WORK email first -----
-        work_status = verify_email(work_email)
+        work_status = verify_email(work_email, mode=mode)
 
         if work_status in ACCEPTABLE_STATUSES:
             # Work email passed! No need to check personal.
@@ -228,7 +231,7 @@ def execute_cascading_verification(df, output_file="VERIFIED_LEADS.csv", append_
                 f"  [{lead_num}/{total_leads}] Work email failed "
                 f"({work_status}). Cascading to personal..."
             )
-            personal_status = verify_email(personal_email)
+            personal_status = verify_email(personal_email, mode=mode)
 
             if personal_status in ACCEPTABLE_STATUSES:
                 # Personal email saved this lead.
@@ -288,3 +291,15 @@ def execute_cascading_verification(df, output_file="VERIFIED_LEADS.csv", append_
     print(f"  Discarded             : {discarded}")
     print(f"  Output file           : {os.path.abspath(output_filepath)}")
     print("=" * 65)
+
+    # -------------------------------------------------------------------------
+    # Return a summary dict so the API endpoint can relay results to the UI.
+    # -------------------------------------------------------------------------
+    return {
+        "status": "success",
+        "message": f"Verification complete. {verified_count} verified, {discarded} discarded.",
+        "verified": verified_count,
+        "discarded": discarded,
+        "total_processed": total_leads,
+        "output_file": os.path.abspath(output_filepath),
+    }
