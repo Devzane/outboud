@@ -13,6 +13,8 @@ Data Flow:
     4. Push updated DataFrame back via sheets_crm.update_sheet_from_df()
 """
 import os
+import time
+import random
 import resend
 import pandas as pd
 from datetime import datetime
@@ -43,8 +45,7 @@ def send_resend_email(to_email, subject, html_content, simulation_mode=False):
         return True
     
     if not RESEND_API_KEY:
-        print("[ERROR] RESEND_API_KEY missing. Cannot send.")
-        return False
+        raise ValueError("RESEND_API_KEY missing. Cannot send.")
         
     try:
         params: resend.Emails.SendParams = {
@@ -58,7 +59,7 @@ def send_resend_email(to_email, subject, html_content, simulation_mode=False):
         return True
     except Exception as e:
         print(f"[ERROR] Failed to send email to {to_email} via Resend: {e}")
-        return False
+        raise e
 
 def generate_email_content(row, step):
     """
@@ -123,6 +124,8 @@ def execute_daily_sending():
         df['has_replied'] = False
     if 'verification_status' not in df.columns:
         df['verification_status'] = 'valid'
+    if 'delivery_status' not in df.columns:
+        df['delivery_status'] = ""
 
     today = datetime.today()
     today_str = today.strftime('%Y-%m-%d')
@@ -162,23 +165,29 @@ def execute_daily_sending():
                 lead_email = row.get('verified_target_email', f"Lead #{index}")
                 subject, html_content = generate_email_content(row, seq_step)
                 
-                success = send_resend_email(lead_email, subject, html_content, simulation_mode)
-                
-                if success:
-                    df.at[index, 'sequence_step'] = seq_step + 1
-                    df.at[index, 'last_contact_date'] = today_str
-                    
-                    if seq_step + 1 == 1:
-                        next_delay = 3
-                    elif seq_step + 1 == 2:
-                        next_delay = 4
-                    elif seq_step + 1 == 3:
-                        next_delay = 6
-                    else:
-                        next_delay = 999
+                try:
+                    success = send_resend_email(lead_email, subject, html_content, simulation_mode)
+                    if success:
+                        df.at[index, 'sequence_step'] = seq_step + 1
+                        df.at[index, 'last_contact_date'] = today_str
+                        df.at[index, 'delivery_status'] = "Sent Sequence " + str(seq_step)
                         
-                    df.at[index, 'next_scheduled_date'] = calculate_next_send_date(today, next_delay)
-                    follow_ups_sent += 1
+                        if seq_step + 1 == 1:
+                            next_delay = 3
+                        elif seq_step + 1 == 2:
+                            next_delay = 4
+                        elif seq_step + 1 == 3:
+                            next_delay = 6
+                        else:
+                            next_delay = 999
+                            
+                        df.at[index, 'next_scheduled_date'] = calculate_next_send_date(today, next_delay)
+                        follow_ups_sent += 1
+                        
+                        if not simulation_mode:
+                            time.sleep(random.randint(45, 120))
+                except Exception as e:
+                    df.at[index, 'delivery_status'] = "Failed: " + str(e)
 
     # =========================================================================
     # PHASE 2: NEW LEADS (sequence_step == 0) - THROTTLED to 15
@@ -201,13 +210,19 @@ def execute_daily_sending():
             lead_email = row.get('verified_target_email', f"Lead #{index}")
             subject, html_content = generate_email_content(row, seq_step)
             
-            success = send_resend_email(lead_email, subject, html_content, simulation_mode)
-            
-            if success:
-                df.at[index, 'sequence_step'] = seq_step + 1
-                df.at[index, 'last_contact_date'] = today_str
-                df.at[index, 'next_scheduled_date'] = calculate_next_send_date(today, 3)
-                new_leads_sent += 1
+            try:
+                success = send_resend_email(lead_email, subject, html_content, simulation_mode)
+                if success:
+                    df.at[index, 'sequence_step'] = seq_step + 1
+                    df.at[index, 'last_contact_date'] = today_str
+                    df.at[index, 'delivery_status'] = "Sent Sequence " + str(seq_step)
+                    df.at[index, 'next_scheduled_date'] = calculate_next_send_date(today, 3)
+                    new_leads_sent += 1
+                    
+                    if not simulation_mode:
+                        time.sleep(random.randint(45, 120))
+            except Exception as e:
+                df.at[index, 'delivery_status'] = "Failed: " + str(e)
 
     # =========================================================================
     # PHASE 3: STATE PERSISTENCE (Back to Google Sheets via shared CRM)
